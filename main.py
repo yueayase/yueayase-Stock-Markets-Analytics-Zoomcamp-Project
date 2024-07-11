@@ -48,6 +48,7 @@ def main():
     sim = Simulation(train_model=trained, invest_each=100.0)
     sim.report("Sim1: Portfolio Strategy, Equal Weights", opt_method="EW")
     sim.report("Sim2: Portfolio Strategy, Mean-Variance Optimization", opt_method="MVO")
+    sim.report("Sim3: Portfolio Strategy, Sharpe Ratio Optimization", opt_method="SRO")
 
 
 if __name__ == '__main__':

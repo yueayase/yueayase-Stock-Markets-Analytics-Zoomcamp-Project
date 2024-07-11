@@ -123,6 +123,27 @@ class Simulation:
     
     # helper functions for maximize returns and minimize risk, the approach is from the following link:
     # https://www.kaggle.com/code/vijipai/lesson-5-mean-variance-optimization-of-portfolios
+    def _get_mean_covariance(self, one_day_pred_top5: pd.DataFrame):
+        """
+        Get the mean vector and the covariance matrix 
+        of the top 5 most possibly making profit tickers
+        """
+        df = self.df_ticker_date
+        top5_returns = {}   # for the dataframe of 5 days future growth of top 5 stockes 
+        
+        for index, row in one_day_pred_top5.iterrows():
+            returns = [] # for the list of 5 days returns of the corresponding ticker 
+            for day in range(5, 0, -1):
+                filter = (row.Ticker, row.Date)
+                returns.append(float(df.loc[filter][f"daily_return_before_{day}d"]-1))
+            top5_returns[row.Ticker] = returns
+        
+        top5_returns = pd.DataFrame(top5_returns)
+        top5_returns.replace([np.inf, -np.inf], np.nan, inplace=True)  # if divided by 0 happens, view it as Nan
+        top5_returns.fillna(0)   # if Nan, we just fill 0 to represent on return
+
+        return top5_returns.mean(), top5_returns.cov()
+
     def _maximize_returns(self, mean_returns):
         # https://docs.scipy.org/doc/scipy/reference/optimize.linprog-highs.html#optimize-linprog-highs
         # Note: 
@@ -154,22 +175,7 @@ class Simulation:
 
     # return the weights generated from mean-variance optimization
     def mean_variance_optimization(self, one_day_pred_top5: pd.DataFrame):
-        df = self.df_ticker_date
-        top5_returns = {}   # for the dataframe of 5 days future growth of top 5 stockes 
-        
-        for index, row in one_day_pred_top5.iterrows():
-            returns = [] # for the list of 5 days returns of the corresponding ticker 
-            for day in range(5, 0, -1):
-                filter = (row.Ticker, row.Date)
-                returns.append(float(df.loc[filter][f"daily_return_before_{day}d"]-1))
-            top5_returns[row.Ticker] = returns
-        
-        top5_returns = pd.DataFrame(top5_returns)
-        top5_returns.replace([np.inf, -np.inf], np.nan, inplace=True)  # if divided by 0 happens, view it as Nan
-        top5_returns.fillna(0)   # if Nan, we just fill 0 to represent on return
-
-        mean_returns = top5_returns.mean()
-        cov_returns = top5_returns.cov()
+        mean_returns, cov_returns =  self._get_mean_covariance(one_day_pred_top5)
         no_of_buy = len(one_day_pred_top5)  # total investments
 
         opt1 = self._maximize_returns(mean_returns)        # optimal parameters of maximize returns
@@ -203,4 +209,27 @@ class Simulation:
 
     # return the weights generated from Sharpe ratio optimization
     def sharpe_ratio_optimization(self, one_day_pred_top5: pd.DataFrame):
-        pass
+        mean_returns, cov_returns =  self._get_mean_covariance(one_day_pred_top5)
+        no_of_buy = len(one_day_pred_top5)  # total investments
+        rf = 0.02 # yearly risk-free rate by experience, update to use LIBOR rate in the future, maybe
+        r0 = (1 + rf)**(1.0/365) - 1  # for daily risk-free rate
+
+        def f(x):
+            denumerator = np.sqrt(x @ cov_returns @ x.T) # quadratic form x^T*A
+            numerator = mean_returns @ x.T - r0          # sum of mean returns minux risk-free rate
+            return -numerator / denumerator              # want to maximize, so take negative
+        
+        def constraint_eq(x):
+            # this is just [1, 1, ..., 1] * vector of transpose x(column vector) - 1 = 0 
+            # because we want the sum of coeff to be 1
+            return np.ones(x.shape) @ x.T - 1
+        
+        x0 = np.repeat(1/no_of_buy, no_of_buy)  # just take equal weights as the initial values
+        # See the above Kaggle tutorial 
+        cons = ({'type': 'eq', 'fun': constraint_eq})
+        bound = (0, 1) # the interval of each weight
+        bounds = tuple([bound for i in range(no_of_buy)]) ## the parameter requires tuple type
+
+        opt = optimize.minimize(f, x0=x0, method = 'SLSQP', bounds=bounds, constraints=cons, tol=1.0e-3)
+        return opt.x # the optimal solution of weights is stored in x
+
