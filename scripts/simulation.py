@@ -9,6 +9,7 @@ class Simulation:
     train_model: TrainModel
     rf_best_pred: str
     invest_each: float
+    df_ticker_date: pd.DataFrame # for finding ticker, date pair faster
 
     def __init__(self, train_model: TrainModel, invest_each: float):
         rf_best_pred = ""
@@ -36,9 +37,10 @@ class Simulation:
 
         # get future 1d growth for optimization methods
         new_df = self.train_model.df_full.copy()
-        for day in range(1, 5):
-            new_df[f'growth_future_{day}d'] = new_df['Adj Close'].shift(-day) / new_df['Adj Close']
+        for day in range(1, 6):
+            new_df[f'daily_return_before_{day}d'] = new_df['Adj Close'].shift(day-1) / new_df['Adj Close'].shift(day)
         self.train_model.df_full = new_df
+        self.df_ticker_date = new_df.set_index(["Ticker", "Date"])   # for finding ticker, date pair faster
 
         # optimization methods
         self.opt_methods = {
@@ -152,16 +154,16 @@ class Simulation:
 
     # return the weights generated from mean-variance optimization
     def mean_variance_optimization(self, one_day_pred_top5: pd.DataFrame):
-        df = self.train_model.df_full
+        df = self.df_ticker_date
         top5_returns = {}   # for the dataframe of 5 days future growth of top 5 stockes 
         
         for index, row in one_day_pred_top5.iterrows():
             returns = [] # for the list of 5 days returns of the corresponding ticker 
-            for day in range(1, 6):
-                filter = (df.Ticker == row.Ticker) & (df.Date == row.Date)  # the correspondin ticker and date
-                returns.append(float(df[filter][f"growth_future_{day}d"]-1)) 
+            for day in range(5, 0, -1):
+                filter = (row.Ticker, row.Date)
+                returns.append(float(df.loc[filter][f"daily_return_before_{day}d"]-1))
             top5_returns[row.Ticker] = returns
-
+        
         top5_returns = pd.DataFrame(top5_returns)
         top5_returns.replace([np.inf, -np.inf], np.nan, inplace=True)  # if divided by 0 happens, view it as Nan
         top5_returns.fillna(0)   # if Nan, we just fill 0 to represent on return

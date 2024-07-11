@@ -297,11 +297,11 @@ class TrainModel:
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
         df.fillna(0, inplace=True)
         return df 
+    
     def prepare_dataframe(self):
         print("Prepare the dataframe: define feature sets, add dummies, temporal split")
         self._define_feature_sets()
-        # get dummies and df_full
-        self._define_dummies()
+        self._define_dummies() # get dummies and df_full
         
         # temporal split
         min_date_df = self.df_full.Date.min()
@@ -340,14 +340,10 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
         pca = PCA(n_components=n_comp)
         pca.fit(X_train_valid)
         X_train_valid_pca = pca.transform(X_train_valid)
-        X_test_pca = pca.transform(X_test)
         X_all_pca = pca.transform(X_all)
 
         logisticReg = LogisticRegression(solver="lbfgs")
         logisticReg.fit(X_train_valid_pca, self.y_train_valid)
-        y_test_pred = logisticReg.predict(X_test_pca)
-        #print(np.array(np.unique(y_test_pred, return_counts=True)).T)
-        #print(tpr_fpr_dataframe(self.y_test, y_test_pred, only_even=True))
 
         y_pred = logisticReg.predict(X_all_pca)
         return y_pred, n_comp
@@ -360,10 +356,8 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
 
         # transform into scaled train_validate set and test set
         X_train_valid = scaler.transform(self.X_train_valid)
-        X_test = scaler.transform(self.X_test)
-        #X_all = scaler.transform(self.X_all)
 
-        # See : https://scikit-learn.org/stable/modules/feature_selection.html and 
+        # See : https://scikit-learn.org/stable/modules/feature_selection.html 
         # Or : https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.SelectFromModel.html#sklearn.feature_selection.SelectFromModel
         # Other approaches: https://medium.com/@rithpansanga/logistic-regression-for-feature-selection-selecting-the-right-features-for-your-model-410ca093c5e0
         lgsr = LogisticRegression(penalty="l2", C=0.05, solver="newton-cholesky")
@@ -384,7 +378,7 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
         best_estimators = 1
 
         for depth in [15, 16, 17, 18, 19, 20]:
-            for estimators in [50,100,200,500]:
+            for estimators in [50,100,200,500, 1000]:
                 print(f'Working with HyperParams: depth = {depth}, estimators = {estimators}')
                 
                 # Start timing
@@ -477,6 +471,7 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
         self._define_dataframes_for_ML(features_list=self.NUMERICAL+ self.DUMMIES)
 
         if train_new:
+            # get and list important features
             features = self._feature_selection()
             print(f"features({len(features)} total):")
             for feature in features:
@@ -484,12 +479,10 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
             
 
             print("-- Step 3.3: Train a Random Forest model")
-            self._define_dataframes_for_ML(features_list=features)
+            self._define_dataframes_for_ML(features_list=features)  # classify the data again
 
             if tuning_rf:
                 precision_matrix, best_depth, best_estimators = self._tuning_random_forest()
-                #print(precision_matrix)
-                #print(best_depth, best_estimators)
                 # save parameters
                 self._save_rfbest_parameters({
                         'precision_matrix': precision_matrix,
@@ -523,6 +516,7 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
         y_pred_all_class1 = np.array([k[1] for k in y_pred_all])
         self.df_full['proba_pred_class1'] = y_pred_all_class1
 
+        # new predictors based on random forest precision scores and threshold(from 51%~60%)
         for percent in range(51, 61):
             threshold = percent / 100
             predictor_name = f"pred{percent-50}_rf_best_positive_rule{percent}"
@@ -583,4 +577,5 @@ index: {n_comp-1}, value: {cum_ratio[n_comp-1]}")
         plt.subplots_adjust(hspace=0.5)
         plt.show()
 
+        # This will be used in simulations
         predictions, is_correct = get_predictions_correctness(self.df_full, to_predict='is_positive_growth_5d_future')
